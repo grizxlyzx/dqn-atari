@@ -3,7 +3,7 @@ import time
 import numpy as np
 import torch
 from model import MLP, DQNConv, ReplayBuffer
-from wrappers import AtariFrameWrapper
+from wrappers import AtariFrameWrapperTestEnt
 from Logger import Logger
 from cfg import *
 import gymnasium as gym
@@ -11,13 +11,16 @@ import tqdm
 import os
 import sys
 
-SAVE_PATH = os.path.dirname(os.path.abspath(__file__)) + '/weights/dqn_rgb.pt'
-
+SAVE_PATH = os.path.dirname(os.path.abspath(__file__)) + '/weights/dqn_test1_rgb.pt'
+ACT_STACK = 5000
+ENT_ACT = 10
+IN_CHANNEL = FRAME_HIST + ENT_ACT if TO_GREY_SCALE else FRAME_HIST * 3 + ENT_ACT
 def make_env(render):
     env = gym.make(ENV_NAME, frameskip=FRAME_SKIP,
                    obs_type='rgb', repeat_action_probability=0.1,
                    render_mode=render, full_action_space=False)
-    env = AtariFrameWrapper(env, FRAME_HEIGHT, FRAME_WIDTH, TO_GREY_SCALE, FRAME_HIST)
+    env = AtariFrameWrapperTestEnt(env, FRAME_HEIGHT, FRAME_WIDTH, TO_GREY_SCALE, FRAME_HIST,
+                                   act_stack=ACT_STACK, ent_act=ENT_ACT)
     return env
 
 def play_one_game(dqn, render=True):
@@ -27,7 +30,7 @@ def play_one_game(dqn, render=True):
     done = False
     reward = 0
     while not done:
-        a = dqn.choose_action(ob, eps=0.1)
+        a = dqn.choose_action(ob, eps=0)
         ob, r, done, _, _ = env.step(a)
         reward += r
         if render:
@@ -40,7 +43,7 @@ def evaluation(env, dqn, iteration=10):
         ob, _ = env.reset()
         done = False
         while not done:
-            a = dqn.choose_action(ob, eps=0.1)
+            a = dqn.choose_action(ob, eps=0.05)
             ob, r, done, _, _ = env.step(a)
             ret += r
     return ret / iteration

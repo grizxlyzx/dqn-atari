@@ -141,6 +141,7 @@ class AtariFrameWrapper(gym.Wrapper):
         self.frame_hist = frame_hist
         self.observation_space = gym.spaces.Box(low=0, high=1,
                                                 shape=(self.height, self.width, self.chn * frame_hist))
+        self.action_space = gym.spaces.Discrete(6)
         self.hist_stack = self._make_hist_stack()
 
     def reset(self, **kwargs):
@@ -171,3 +172,79 @@ class AtariFrameWrapper(gym.Wrapper):
     def _process_reward(reward):
         reward /= 20
         return reward
+
+class AtariFrameWrapperTestEnt(gym.Wrapper):
+    def __init__(self,
+                 env,
+                 height=96,
+                 width=96,
+                 grey_scale=False,
+                 frame_hist=4,
+                 act_stack=5000,
+                 ent_act=10):
+        super(AtariFrameWrapperTestEnt, self).__init__(env)
+        self.height = height
+        self.width = width
+        self.chn = 1 if grey_scale else 3
+        self.frame_hist = frame_hist
+        self.observation_space = gym.spaces.Box(low=0, high=1,
+                                                shape=(self.height, self.width,
+                                                       self.chn * frame_hist + ent_act))
+        self.action_space = gym.spaces.Discrete(6)
+        self.hist_stack = self._make_hist_stack()
+        self.action_stack = np.ones(act_stack, dtype=int) * -1
+        self.action_ctr = np.ones(self.action_space.n)
+        self.ent_act = ent_act
+
+    def reset(self, **kwargs):
+        ob, info = self.env.reset(**kwargs)
+        self.hist_stack = self._make_hist_stack()
+        ob = self._process_frame(ob)
+        return ob, info
+
+    def step(self, action):
+        ob, reward, done, truncated, info = self.env.step(action)
+        ent = self._process_action(action)
+        ob = self._process_frame(ob)
+        reward = self._process_reward(reward)
+        reward -= ent / 30.
+        return ob, reward, done, truncated, info
+
+    def _process_action(self, a):
+        if self.action_stack[-1] != -1:
+            self.action_ctr[self.action_stack[-1]] -= 1
+        self.action_ctr[a] += 1
+        self.action_stack[1:] = self.action_stack[0: -1]
+        self.action_stack[0] = a
+        action_prob = self.action_ctr / self.action_ctr.sum()
+        ent = 0
+        p_log_p = action_prob * np.log(action_prob)
+        for i in range(10):
+            ent -= p_log_p[self.action_stack[i]]
+        # ent = -np.sum(action_prob * np.log(action_prob))
+        return ent
+
+    def _make_hist_stack(self):
+        return np.zeros([self.height, self.width, self.chn * self.frame_hist], dtype=np.float32)
+
+    def _process_frame(self, ob):
+        if self.chn == 1:
+            ob = cv2.cvtColor(ob, cv2.COLOR_RGB2GRAY)
+        ob = cv2.resize(ob, (self.width, self.height), interpolation=cv2.INTER_AREA)[:, :, np.newaxis]
+        self.hist_stack[:, :, self.chn:] = self.hist_stack[:, :, 0: -self.chn]
+        self.hist_stack[:, :, :self.chn] = ob
+        frame = np.concatenate([self.hist_stack, self._action_hist()], axis=2)
+        return frame
+
+    def _action_hist(self):
+        ret = np.ones([self.height, self.width, self.ent_act], dtype=np.float32) * 0.1
+        for i in range(self.ent_act):
+            ret[:, :, i] *= self.action_stack[i]
+        return ret
+
+
+    @staticmethod
+    def _process_reward(reward):
+        reward /= 20
+        return reward
+

@@ -140,7 +140,7 @@ class DQNConv(nn.Module):
         if np.random.random() > eps:
             action = np.argmax(q_vals)
         else:
-            action = np.random.randint(low=0, high=len(q_vals))
+            action = np.random.randint(low=0, high=len(q_vals[0]))
         return action
 
     def calc_1_step_td_loss(self, ob, a, r, ob_nx, done, tgt_net):
