@@ -1,3 +1,4 @@
+import gc
 import time
 
 import numpy as np
@@ -10,11 +11,13 @@ import gymnasium as gym
 import tqdm
 import os
 import sys
+import objgraph
 
 SAVE_PATH = os.path.dirname(os.path.abspath(__file__)) + '/weights/dqn_test1_rgb.pt'
 ACT_STACK = 5000
 ENT_ACT = 10
 IN_CHANNEL = FRAME_HIST + ENT_ACT if TO_GREY_SCALE else FRAME_HIST * 3 + ENT_ACT
+
 def make_env(render):
     env = gym.make(ENV_NAME, frameskip=FRAME_SKIP,
                    obs_type='rgb', repeat_action_probability=0.1,
@@ -77,10 +80,10 @@ def run():
                 if replay_buffer.size() > BATCH_SIZE:
                     b_ob, b_ob_nx, b_a, _, b_r_nx, b_done = replay_buffer.sample(BATCH_SIZE)
                     loss = dqn.calc_1_step_td_loss(b_ob, b_a, b_r_nx, b_ob_nx, b_done, dqn_tgt)
-                    loss_log.log(loss.item())
                     optimizer.zero_grad()
                     loss.backward()
                     optimizer.step()
+                    loss_log.log(loss.detach().item())
                 if pbar.n % TARGET_NET_UPDATE == 0:
                     dqn_tgt.load_state_dict(dqn.state_dict())
                 if pbar.n % SAVE_STEP == 0 and pbar.n > 1:
@@ -89,12 +92,12 @@ def run():
             eps = eps - EPS_DECAY if eps > EPS_MIN else eps
             reward_log.new_epoch()
             loss_log.new_epoch()
-
             epi_ctr += 1
+            objgraph.show_growth()
             if epi_ctr % 5 == 1:
                 r_eval = evaluation(env, dqn, 3)
                 pbar.set_postfix({
-                    'epoch': f'{epi_ctr}',
+                    'episode': f'{epi_ctr}',
                     'avg_loss': f'{loss_log.latest_mean(50):.6f}',
                     'avg_reward': f'{reward_log.latest_sum(50):.1f}',
                     'avg_eval_reward': f'{r_eval:.1f}',

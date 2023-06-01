@@ -1,27 +1,31 @@
 import numpy as np
 
-class FIFOReplayBuffer:
-    def __init__(self, capacity, *buffers):
+class CircularReplayBuffer:
+    def __init__(self, capacity):
         self._capacity = capacity
-        self._buffer = np.zeros([len(buffers), capacity])
+        self._buffer = np.empty(capacity, dtype=object)
+        self._write_ptr = 0
+        self._size = 0
 
-
-
-    def _init_add(self, *args):
-        pass
-
-    def _add(self):
-        pass
+    def add(self, ob, ob_nx, action, reward, reward_nx, done):
+        self._buffer[self._write_ptr] = [ob, ob_nx, action, reward, reward_nx, done]
+        self._size += 1 if self._size < self._capacity else 0
+        self._write_ptr += 1
+        self._write_ptr %= self._capacity
 
     def sample(self, batch_size):
-        pass
+        transitions = np.random.choice(self._buffer[:self._size], batch_size, replace=False)
+        ob, ob_nx, action, reward, reward_nx, done = zip(*transitions)
+        return np.array(ob), np.array(ob_nx), action, reward, reward_nx, done
 
     def size(self):
         return self.__len__()
 
     def __len__(self):
-        pass
+        return self._size
 
     def clear(self):
-        pass
+        self._buffer = np.empty(self._capacity, dtype=object)
+        self._write_ptr = 0
+        self._size = 0
 

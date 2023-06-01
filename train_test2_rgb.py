@@ -3,9 +3,9 @@ from torch.utils.tensorboard import SummaryWriter
 
 import numpy as np
 import torch
-from model import MLP, DQNConv
+from model import *
 from replay_buffer import CircularReplayBuffer
-from wrappers import AtariFrameWrapper
+from wrappers import *
 from Logger import Logger
 from cfg import *
 import gymnasium as gym
@@ -13,13 +13,17 @@ import tqdm
 import os
 import sys
 
-SAVE_PATH = os.path.dirname(os.path.abspath(__file__)) + '/weights/dqn_rgb.pt'
+SAVE_PATH = os.path.dirname(os.path.abspath(__file__)) + '/weights/dqn_test2_rgb.pt'
+ACT_STACK = 5000
+ENT_ACT = 10
+IN_CHANNEL = FRAME_HIST + ENT_ACT if TO_GREY_SCALE else FRAME_HIST * 3 + ENT_ACT
 
 def make_env(render):
     env = gym.make(ENV_NAME, frameskip=FRAME_SKIP,
                    obs_type='rgb', repeat_action_probability=0.1,
                    render_mode=render, full_action_space=False)
-    env = AtariFrameWrapper(env, FRAME_HEIGHT, FRAME_WIDTH, TO_GREY_SCALE, FRAME_HIST)
+    env = AtariFrameWrapperTestEnt(env, FRAME_HEIGHT, FRAME_WIDTH, TO_GREY_SCALE, FRAME_HIST,
+                                   act_stack=ACT_STACK, ent_act=ENT_ACT)
     return env
 
 def play_one_game(dqn, render=True):
@@ -51,8 +55,10 @@ def run():
     env = make_env(render=None)
     eps = EPS_MAX
     replay_buffer = CircularReplayBuffer(capacity=BUFFER_SIZE)
-    dqn = DQNConv(in_channels=IN_CHANNEL, n_actions=env.action_space.n, device=DEVICE, gamma=GAMMA)
-    dqn_tgt = DQNConv(in_channels=IN_CHANNEL, n_actions=env.action_space.n, device=DEVICE, gamma=GAMMA)
+    dqn = DQNConv(in_channels=IN_CHANNEL, n_actions=env.action_space.n, device=DEVICE,
+                     gamma=GAMMA)
+    dqn_tgt = DQNConv(in_channels=IN_CHANNEL, n_actions=env.action_space.n, device=DEVICE,
+                         gamma=GAMMA)
     dqn.load_weights(SAVE_PATH)
     dqn_tgt.load_weights(SAVE_PATH)
 
@@ -79,6 +85,12 @@ def run():
                 if replay_buffer.size() > BATCH_SIZE:
                     b_ob, b_ob_nx, b_a, _, b_r_nx, b_done = replay_buffer.sample(BATCH_SIZE)
                     loss = dqn.calc_1_step_td_loss(b_ob, b_a, b_r_nx, b_ob_nx, b_done, dqn_tgt)
+                    ent = 0
+                    for o in b_ob:
+                        seq = o[0, 0, -ENT_ACT:] * 10
+                        ent += env.calc_ent(seq.astype(int))
+                    ent /= BATCH_SIZE
+                    loss += ent / 300.
                     optimizer.zero_grad()
                     loss.backward()
                     optimizer.step()

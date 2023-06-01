@@ -102,7 +102,7 @@ class DQN:
 
 
 class DQNConv(nn.Module):
-    def __init__(self, in_channels=4, n_actions=14, num_hidden=64 * 8 * 8,
+    def __init__(self, in_channels=4, n_actions=14, num_hidden=64 * 9 * 5,
                  device=0,
                  gamma=0.95):
         """
@@ -112,29 +112,52 @@ class DQNConv(nn.Module):
             n_actions (int): number of outputs
         """
         super(DQNConv, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, 32, kernel_size=8, stride=4)
-        self.bn1 = nn.BatchNorm2d(32)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=4, stride=2)
-        self.bn2 = nn.BatchNorm2d(64)
-        self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
-        self.bn3 = nn.BatchNorm2d(64)
-        self.fc4 = nn.Linear(num_hidden, 512)
-        self.head = nn.Linear(512, n_actions)
+        # self.conv1 = nn.Conv2d(in_channels, 32, kernel_size=8, stride=4)
+        # self.bn1 = nn.BatchNorm2d(32)
+        # self.conv2 = nn.Conv2d(32, 64, kernel_size=4, stride=2)
+        # self.bn2 = nn.BatchNorm2d(64)
+        # self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
+        # self.bn3 = nn.BatchNorm2d(64)
+        # self.fc4 = nn.Linear(num_hidden, 512)
+        # self.head = nn.Linear(512, n_actions)
+
+        self.net = nn.Sequential(
+            nn.Conv2d(in_channels, 16, kernel_size=3, stride=1),
+            nn.LeakyReLU(),
+            nn.Conv2d(16, 32, kernel_size=3, stride=2),
+            nn.LeakyReLU(),
+            nn.Conv2d(32, 32, kernel_size=3, stride=1),
+            nn.LeakyReLU(),
+            nn.Conv2d(32, 64, kernel_size=3, stride=2),
+            nn.LeakyReLU(),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1),
+            nn.LeakyReLU(),
+            nn.Conv2d(64, 128, kernel_size=3, stride=2),
+            nn.LeakyReLU(),
+            nn.Conv2d(128, 64, kernel_size=3, stride=1),
+            nn.Flatten(),
+            nn.Linear(num_hidden, 512),
+            nn.LeakyReLU(),
+            nn.Linear(512, n_actions)
+        )
+
         self.num_hidden = num_hidden
         self.device = device
         self.gamma = gamma
         self.to(device)
 
     def forward(self, x):
-        x = x.float() / 255
-        x = F.relu(self.bn1(self.conv1(x)))
-        x = F.relu(self.bn2(self.conv2(x)))
-        x = F.relu(self.bn3(self.conv3(x)))
-        x = F.relu(self.fc4(torch.flatten(x, 1)))
-        return self.head(x)
+        x = x.float() / 255.
+        x = self.net(x)
+        # x = F.relu(self.bn1(self.conv1(x)))
+        # x = F.relu(self.bn2(self.conv2(x)))
+        # x = F.relu(self.bn3(self.conv3(x)))
+        # x = F.relu(self.fc4(torch.flatten(x, 1)))
+        # x = self.head(x)
+        return x
 
     def choose_action(self, ob, eps=0.05):
-        ob = torch.tensor(ob).to(self.device)
+        ob = torch.tensor(ob, dtype=torch.float).to(self.device)
         ob = torch.permute(ob, dims=(2, 0, 1)).unsqueeze(0)
         q_vals = self.forward(ob).detach().cpu().numpy()
         if np.random.random() > eps:
@@ -153,7 +176,7 @@ class DQNConv(nn.Module):
         done = torch.tensor(done, dtype=torch.float).view(-1, 1).to(self.device)
         q_a = self.forward(ob).gather(1, a)
         max_q_a_nx = tgt_net(ob_nx).max(1)[0].view(-1, 1).detach()
-        q_tgt = r + self.gamma * max_q_a_nx * (1 - done)
+        q_tgt = r + (self.gamma * max_q_a_nx * (1 - done))
         loss = F.mse_loss(q_a, q_tgt)
         return loss
 
@@ -165,3 +188,15 @@ class DQNConv(nn.Module):
             self.load_state_dict(torch.load(fn))
         else:
             print(f'MLP: Warning, load weights failed, path not exist: "{fn}"')
+
+class DQNConvEnt(DQNConv):
+    def __init__(self,
+                 in_channels=4,
+                 n_actions=14,
+                 num_hidden=64 * 9 * 5,
+                 device=0,
+                 gamma=0.95,
+                 ent_act=10):
+        super(DQNConvEnt, self).__init__(in_channels, n_actions, num_hidden, device, gamma)
+
+

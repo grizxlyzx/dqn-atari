@@ -1,3 +1,5 @@
+import math
+
 import gymnasium as gym
 import numpy as np
 import collections
@@ -32,7 +34,6 @@ class AtariBufferWrapper(gym.Wrapper):
         reward = self._process_reward(r)
         ob = self._process_ob(ob)
         return ob, reward, done, truncated, info
-
 
 class AtariBufferWrapperObStack(gym.Wrapper):
     def __init__(self,
@@ -69,7 +70,6 @@ class AtariBufferWrapperObStack(gym.Wrapper):
         reward = self._process_reward(r)
         ob = self._process_ob(ob)
         return ob, reward, done, truncated, info
-
 
 class AtariBufferWrapperTestEnt(gym.Wrapper):
     def __init__(self,
@@ -156,7 +156,6 @@ class AtariFrameWrapper(gym.Wrapper):
         reward = self._process_reward(reward)
         return ob, reward, done, truncated, info
 
-
     def _make_hist_stack(self):
         return np.zeros([self.height, self.width, self.chn * self.frame_hist], dtype=np.float32)
 
@@ -170,7 +169,8 @@ class AtariFrameWrapper(gym.Wrapper):
 
     @staticmethod
     def _process_reward(reward):
-        reward /= 20
+        if reward != 0:
+            reward = 1 if reward > 0 else -1
         return reward
 
 class AtariFrameWrapperTestEnt(gym.Wrapper):
@@ -194,7 +194,7 @@ class AtariFrameWrapperTestEnt(gym.Wrapper):
         self.hist_stack = self._make_hist_stack()
         self.action_stack = np.ones(act_stack, dtype=int) * -1
         self.action_ctr = np.ones(self.action_space.n)
-        self.ent_act = ent_act
+        self._ent_act = ent_act
 
     def reset(self, **kwargs):
         ob, info = self.env.reset(**kwargs)
@@ -204,11 +204,19 @@ class AtariFrameWrapperTestEnt(gym.Wrapper):
 
     def step(self, action):
         ob, reward, done, truncated, info = self.env.step(action)
-        ent = self._process_action(action)
+        self._process_action(action)
         ob = self._process_frame(ob)
         reward = self._process_reward(reward)
-        reward -= ent / 30.
         return ob, reward, done, truncated, info
+
+    def calc_ent(self, act_seq):
+        action_prob = self.action_ctr / self.action_ctr.sum()
+        ent = 0
+        p_log_p = action_prob * np.log(action_prob)
+        for a in act_seq:
+            ent -= p_log_p[a]
+        # ent = -np.sum(action_prob * np.log(action_prob))
+        return ent
 
     def _process_action(self, a):
         if self.action_stack[-1] != -1:
@@ -216,13 +224,6 @@ class AtariFrameWrapperTestEnt(gym.Wrapper):
         self.action_ctr[a] += 1
         self.action_stack[1:] = self.action_stack[0: -1]
         self.action_stack[0] = a
-        action_prob = self.action_ctr / self.action_ctr.sum()
-        ent = 0
-        p_log_p = action_prob * np.log(action_prob)
-        for i in range(10):
-            ent -= p_log_p[self.action_stack[i]]
-        # ent = -np.sum(action_prob * np.log(action_prob))
-        return ent
 
     def _make_hist_stack(self):
         return np.zeros([self.height, self.width, self.chn * self.frame_hist], dtype=np.float32)
@@ -231,20 +232,21 @@ class AtariFrameWrapperTestEnt(gym.Wrapper):
         if self.chn == 1:
             ob = cv2.cvtColor(ob, cv2.COLOR_RGB2GRAY)
         ob = cv2.resize(ob, (self.width, self.height), interpolation=cv2.INTER_AREA)[:, :, np.newaxis]
+
         self.hist_stack[:, :, self.chn:] = self.hist_stack[:, :, 0: -self.chn]
         self.hist_stack[:, :, :self.chn] = ob
         frame = np.concatenate([self.hist_stack, self._action_hist()], axis=2)
         return frame
 
     def _action_hist(self):
-        ret = np.ones([self.height, self.width, self.ent_act], dtype=np.float32) * 0.1
-        for i in range(self.ent_act):
+        ret = np.ones([self.height, self.width, self._ent_act], dtype=np.float32) * 0.1
+        for i in range(self._ent_act):
             ret[:, :, i] *= self.action_stack[i]
         return ret
 
-
     @staticmethod
     def _process_reward(reward):
-        reward /= 20
+        if reward != 0:
+            reward = 1 if reward > 0 else -1
         return reward
 
